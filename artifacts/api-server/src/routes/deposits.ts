@@ -205,11 +205,8 @@ async function applyDepositStatusChangeAuto(id: number, status: "approved" | "re
     }
   }
 
-  const [updated] = await db
-    .update(depositsTable)
-    .set({ status })
-    .where(eq(depositsTable.id, id))
-    .returning();
+  await db.update(depositsTable).set({ status }).where(eq(depositsTable.id, id));
+  const [updated] = await db.select().from(depositsTable).where(eq(depositsTable.id, id)).limit(1);
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, dep.userId)).limit(1);
   if (user) {
@@ -386,20 +383,18 @@ router.post("/deposits", async (req, res) => {
   const amountUsd =
     body.currency === "USD" ? body.amount : body.amount / 119;
   const amountSyp = body.currency === "SYP" ? body.amount : body.amount * 119;
-  const inserted = await db
-    .insert(depositsTable)
-    .values({
-      userId: user.id,
-      amountUsd: String(amountUsd.toFixed(4)),
-      amountSyp: String(amountSyp.toFixed(2)),
-      currency: body.currency,
-      method: body.method,
-      methodLabel,
-      transactionId,
-      status: "pending",
-    })
-    .returning();
-  const dep = inserted[0]!;
+  const insertResult = await db.insert(depositsTable).values({
+    userId: user.id,
+    amountUsd: String(amountUsd.toFixed(4)),
+    amountSyp: String(amountSyp.toFixed(2)),
+    currency: body.currency,
+    method: body.method,
+    methodLabel,
+    transactionId,
+    status: "pending",
+  });
+  const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+  const [dep] = insertId ? await db.select().from(depositsTable).where(eq(depositsTable.id, insertId)).limit(1) : [];
   try {
     await notifyAdminsAboutDeposit({
       depositId: dep.id,
@@ -478,19 +473,18 @@ router.post("/deposits/shamcash/invoice", shamCashInvoiceRateLimit, async (req, 
     const amountUsd = currency === "USD" ? amount : amount / 119;
     const amountSyp = currency === "SYP" ? amount : amount * 119;
 
-    const [dep] = await db
-      .insert(depositsTable)
-      .values({
-        userId: user.id,
-        amountUsd: String(amountUsd.toFixed(4)),
-        amountSyp: String(amountSyp.toFixed(2)),
-        currency,
-        method: "sham_cash_auto",
-        methodLabel: methodRow?.name || "شام كاش تلقائي",
-        transactionId: `SC-PENDING-${Date.now()}-${user.id}`,
-        status: "pending",
-      })
-      .returning();
+    const insertResult = await db.insert(depositsTable).values({
+      userId: user.id,
+      amountUsd: String(amountUsd.toFixed(4)),
+      amountSyp: String(amountSyp.toFixed(2)),
+      currency,
+      method: "sham_cash_auto",
+      methodLabel: methodRow?.name || "شام كاش تلقائي",
+      transactionId: `SC-PENDING-${Date.now()}-${user.id}`,
+      status: "pending",
+    });
+    const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+    const [dep] = insertId ? await db.select().from(depositsTable).where(eq(depositsTable.id, insertId)).limit(1) : [];
 
     const webhookSecretPath = SAM_WEBHOOK_SECRET ? `/${encodeURIComponent(SAM_WEBHOOK_SECRET)}` : "";
     const webhookUrl = `${PUBLIC_API_BASE_URL.replace(/\/+$/, "")}/api/webhooks/shamcash${webhookSecretPath}`;

@@ -58,26 +58,22 @@ async function ensureStoreUserFromTelegram(telegramUser: any) {
 
   if (existing) {
     if (!existing.username || existing.username === "ShadyUser") {
-      const [updated] = await db
-        .update(usersTable)
-        .set({ username })
-        .where(eq(usersTable.id, existing.id))
-        .returning();
+      await db.update(usersTable).set({ username }).where(eq(usersTable.id, existing.id));
+      const [updated] = await db.select().from(usersTable).where(eq(usersTable.id, existing.id)).limit(1);
       return updated || existing;
     }
     return existing;
   }
 
-  const [created] = await db
-    .insert(usersTable)
-    .values({
-      telegramId,
-      username,
-      balanceUsd: "0",
-      balanceSyp: "0",
-      role: "user",
-    })
-    .returning();
+  const insertResult = await db.insert(usersTable).values({
+    telegramId,
+    username,
+    balanceUsd: "0",
+    balanceSyp: "0",
+    role: "user",
+  });
+  const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+  const [created] = insertId ? await db.select().from(usersTable).where(eq(usersTable.id, insertId)).limit(1) : [];
 
   return created || null;
 }

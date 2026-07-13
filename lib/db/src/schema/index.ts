@@ -11,6 +11,7 @@ import {
   bigint,
   primaryKey,
 } from "drizzle-orm/mysql-core";
+import { sql } from "drizzle-orm";
 
 /**
  * ShadyCard — MySQL Schema (Converted from PostgreSQL)
@@ -47,7 +48,7 @@ export const usersTable = mysqlTable("users", {
   webAuthToken: varchar("web_auth_token", { length: 255 }),
   webAuthExpiresAt: datetime("web_auth_expires_at"),
   lastLoginAt: datetime("last_login_at"),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== Categories ======
@@ -139,7 +140,7 @@ export const ordersTable = mysqlTable("orders", {
   costUsd: decimal("cost_usd", { precision: 24, scale: 12 }).notNull().default("0"),
   status: varchar("status", { length: 32 }).notNull().default("wait"),
   meta: json("meta"),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== Deposits ======
@@ -155,7 +156,7 @@ export const depositsTable = mysqlTable("deposits", {
   proofImage: varchar("proof_image", { length: 1024 }),
   telegramMessageId: int("telegram_message_id"),
   status: varchar("status", { length: 32 }).notNull().default("pending"),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== Shamcash used transaction refs ======
@@ -168,7 +169,7 @@ export const shamcashUsedTransactionRefsTable = mysqlTable("shamcash_used_transa
   amountUsd: decimal("amount_usd", { precision: 24, scale: 12 }),
   amountSyp: decimal("amount_syp", { precision: 14, scale: 2 }),
   currency: varchar("currency", { length: 8 }),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== Admins ======
@@ -182,7 +183,7 @@ export const adminsTable = mysqlTable("admins", {
   permissions: json("permissions"),
   twoFactorSecret: varchar("two_factor_secret", { length: 255 }),
   active: boolean("active").notNull().default(true),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== Product Changes Log ======
@@ -194,7 +195,7 @@ export const productChangesLogTable = mysqlTable("product_changes_log", {
   newValue: text("new_value"),
   providerSnapshot: json("provider_snapshot"),
   adminId: int("admin_id").references(() => adminsTable.id),
-  changedAt: datetime("changed_at").notNull().defaultNow(),
+  changedAt: datetime("changed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== Settings (key-value) ======
@@ -213,7 +214,7 @@ export const providersTable = mysqlTable("providers", {
   priority: int("priority").notNull().default(0),
   active: boolean("active").notNull().default(true),
   providerType: varchar("provider_type", { length: 64 }).default("custom"),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== Coupons ======
@@ -224,7 +225,7 @@ export const couponsTable = mysqlTable("coupons", {
   maxUses: int("max_uses").notNull().default(100),
   usedCount: int("used_count").notNull().default(0),
   active: boolean("active").notNull().default(true),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== VIP Memberships ======
@@ -244,7 +245,7 @@ export const autoCodesTable = mysqlTable("auto_codes", {
   code: varchar("code", { length: 255 }).notNull(),
   note: text("note"),
   used: boolean("used").notNull().default(false),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== Order Messages ======
@@ -264,7 +265,7 @@ export const activityLogTable = mysqlTable("activity_log", {
   action: varchar("action", { length: 128 }).notNull(),
   target: varchar("target", { length: 128 }),
   meta: json("meta"),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== API Keys ======
@@ -273,7 +274,7 @@ export const apiKeysTable = mysqlTable("api_keys", {
   name: varchar("name", { length: 128 }).notNull(),
   keyValue: varchar("key_value", { length: 255 }).notNull().unique(),
   active: boolean("active").notNull().default(true),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 // ====== Notifications ======
@@ -284,5 +285,5 @@ export const notificationsTable = mysqlTable("notifications", {
   title: varchar("title", { length: 255 }),
   content: text("content").notNull(),
   status: varchar("status", { length: 32 }).notNull().default("sent"),
-  createdAt: datetime("created_at").notNull().defaultNow(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

@@ -142,23 +142,22 @@ router.post("/auth/register", registerRateLimit, async (req, res) => {
   const token = generateWebAuthToken();
   const expiresAt = expiryDate();
 
-  const [created] = await db
-    .insert(usersTable)
-    .values({
-      telegramId: synthId,
-      username: username!.trim(),
-      email: email!.toLowerCase(),
-      passwordHash,
-      balanceUsd: "0",
-      balanceSyp: "0",
-      role: "user",
-      banned: false,
-      vipLevel: 0,
-      webAuthToken: token,
-      webAuthExpiresAt: expiresAt,
-      lastLoginAt: new Date(),
-    })
-    .returning();
+  const insertResult = await db.insert(usersTable).values({
+    telegramId: synthId,
+    username: username!.trim(),
+    email: email!.toLowerCase(),
+    passwordHash,
+    balanceUsd: "0",
+    balanceSyp: "0",
+    role: "user",
+    banned: false,
+    vipLevel: 0,
+    webAuthToken: token,
+    webAuthExpiresAt: expiresAt,
+    lastLoginAt: new Date(),
+  });
+  const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+  const [created] = await db.select().from(usersTable).where(eq(usersTable.id, insertId)).limit(1);
 
   setAuthCookie(res, token, expiresAt);
   res.status(201).json({
@@ -203,11 +202,8 @@ router.post("/auth/login", loginRateLimit, async (req, res) => {
   // Generate new token
   const token = generateWebAuthToken();
   const expiresAt = expiryDate();
-  const [updated] = await db
-    .update(usersTable)
-    .set({ webAuthToken: token, webAuthExpiresAt: expiresAt, lastLoginAt: new Date() })
-    .where(eq(usersTable.id, user.id))
-    .returning();
+  await db.update(usersTable).set({ webAuthToken: token, webAuthExpiresAt: expiresAt, lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
+  const [updated] = await db.select().from(usersTable).where(eq(usersTable.id, user.id)).limit(1);
 
   setAuthCookie(res, token, expiresAt);
   res.json({ user: publicUser(updated!), token, expiresAt: expiresAt.toISOString() });
@@ -281,4 +277,3 @@ function publicUser(u: any) {
 }
 
 export default router;
-export { resolveWebUser };

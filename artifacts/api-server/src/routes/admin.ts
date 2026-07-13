@@ -156,17 +156,16 @@ async function applyUserBalanceAdjustment(userId: number, body: any) {
   const col = adjustment.currency === "SYP" ? usersTable.balanceSyp : usersTable.balanceUsd;
   const field = adjustment.currency === "SYP" ? "balanceSyp" : "balanceUsd";
 
-  const query = db
+  await db
     .update(usersTable)
     .set({ [field]: sql`${col} + ${adjustment.deltaText}` })
     .where(
       adjustment.operation === "sub"
         ? and(eq(usersTable.id, userId), sql`${col} >= ${adjustment.amountText}`)
         : eq(usersTable.id, userId),
-    )
-    .returning();
+    );
 
-  const [updatedUser] = await query;
+  const [updatedUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   if (!updatedUser) {
     throw new ValidationError("الرصيد غير كافٍ لإتمام الخصم");
   }
@@ -219,16 +218,15 @@ async function getOrCreateExternalCategoryId(): Promise<number> {
 
   if (existing?.id) return existing.id;
 
-  const [created] = await db
-    .insert(categoriesTable)
-    .values({
-      name: EXTERNAL_CATEGORY_NAME,
-      image: EXTERNAL_CATEGORY_IMAGE,
-      active: true,
-    })
-    .returning({ id: categoriesTable.id });
+  const insertResult = await db.insert(categoriesTable).values({
+    name: EXTERNAL_CATEGORY_NAME,
+    image: EXTERNAL_CATEGORY_IMAGE,
+    active: true,
+  });
+  const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+  const [created] = await db.select({ id: categoriesTable.id }).from(categoriesTable).where(eq(categoriesTable.id, insertId)).limit(1);
 
-  return created.id;
+  return created!.id;
 }
 
 async function applyDepositStatusChange(id: number, status: string) {
@@ -255,11 +253,8 @@ async function applyDepositStatusChange(id: number, status: string) {
     }
   }
 
-  const [updated] = await db
-    .update(depositsTable)
-    .set({ status })
-    .where(eq(depositsTable.id, id))
-    .returning();
+  await db.update(depositsTable).set({ status }).where(eq(depositsTable.id, id));
+  const [updated] = await db.select().from(depositsTable).where(eq(depositsTable.id, id)).limit(1);
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, dep.userId)).limit(1);
   if (user) {
@@ -294,11 +289,8 @@ async function applyOrderStatusChange(id: number, status: string, note?: string)
     .limit(1);
   if (!order) return { error: "not_found" as const };
 
-  const [updated] = await db
-    .update(ordersTable)
-    .set({ status })
-    .where(eq(ordersTable.id, id))
-    .returning();
+  await db.update(ordersTable).set({ status }).where(eq(ordersTable.id, id));
+  const [updated] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
 
   const [user] = await db
     .select()
@@ -487,7 +479,7 @@ router.get("/admin/dashboard", requireAdmin, async (_req, res) => {
     },
     recentOrders,
     recentDeposits,
-    chart: (chart[0] as any[]), // Fix: cast to any[]
+    chart: Array.isArray(chart?.[0]) ? chart[0] : [],
   });
 });
 
@@ -515,7 +507,11 @@ function makeCrud<T extends { id: any }>(
         path,
         filterFields(req.body, opts.allowedFields),
       );
-      const [row] = (await db.insert(table).values(data).returning()) as any[];
+      const insertResult = await db.insert(table).values(data);
+      const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+      const [row] = insertId
+        ? await db.select().from(table).where(eq(table.id, insertId)).limit(1)
+        : [];
       await logActivity(
         { id: req.session.adminId, name: req.session.adminUsername },
         "create",
@@ -540,11 +536,8 @@ function makeCrud<T extends { id: any }>(
         path === "products"
           ? ((await db.select().from(productsTable).where(eq(productsTable.id, id)).limit(1)) as any[])
           : [];
-      const [row] = await db
-        .update(table)
-        .set(data)
-        .where(eq(table.id, id))
-        .returning();
+      await db.update(table).set(data).where(eq(table.id, id));
+      const [row] = await db.select().from(table).where(eq(table.id, id)).limit(1);
       if (path === "products" && before && row) {
         const logs: Array<{
           productId: number;
@@ -655,7 +648,7 @@ async function hasColumn(tableName: string, columnName: string): Promise<boolean
       AND COLUMN_NAME = ${columnName}
     LIMIT 1
   `);
-  const rows = (result[0] as any[]) || ((result[0] as any[])) || [];
+  const rows = Array.isArray(result?.[0]) ? (result[0] as unknown[]) : [];
   const exists = rows.length > 0;
   columnExistsCache.set(cacheKey, exists);
   return exists;
@@ -991,11 +984,8 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res) => {
     "banned",
     "vipLevel",
   ]);
-  const [row] = await db
-    .update(usersTable)
-    .set(allowed)
-    .where(eq(usersTable.id, Number(req.params.id)))
-    .returning();
+  await db.update(usersTable).set(allowed).where(eq(usersTable.id, Number(req.params.id)));
+  const [row] = await db.select().from(usersTable).where(eq(usersTable.id, Number(req.params.id))).limit(1);
   await logActivity(
     { id: req.session.adminId, name: req.session.adminUsername },
     "update_user",
@@ -1119,7 +1109,7 @@ router.put("/admin/settings", requireAdmin, async (req, res) => {
     await db
       .insert(settingsTable)
       .values({ key, value })
-      .onConflictDoUpdate({ target: settingsTable.key, set: { value } });
+      .onDuplicateKeyUpdate({ set: { value } });
   }
   await logActivity(
     { id: req.session.adminId, name: req.session.adminUsername },
@@ -1161,7 +1151,9 @@ router.post("/admin/admins", requireAdmin, async (req, res) => {
     return;
   }
   data.password = await hashAdminPassword(data.password);
-  const [row] = await db.insert(adminsTable).values(data).returning();
+  const insertResult = await db.insert(adminsTable).values(data);
+  const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+  const [row] = insertId ? await db.select().from(adminsTable).where(eq(adminsTable.id, insertId)).limit(1) : [];
   res.json({ ...row, password: undefined });
 });
 
@@ -1179,11 +1171,8 @@ router.patch("/admin/admins/:id", requireAdmin, async (req, res) => {
   if (typeof data.password === "string") {
     data.password = await hashAdminPassword(data.password);
   }
-  const [row] = await db
-    .update(adminsTable)
-    .set(data)
-    .where(eq(adminsTable.id, Number(req.params.id)))
-    .returning();
+  await db.update(adminsTable).set(data).where(eq(adminsTable.id, Number(req.params.id)));
+  const [row] = await db.select().from(adminsTable).where(eq(adminsTable.id, Number(req.params.id))).limit(1);
   res.json({ ...row, password: undefined });
 });
 
@@ -1204,10 +1193,9 @@ router.get("/admin/notifications", requireAdmin, async (_req, res) => {
 
 router.post("/admin/notifications", requireAdmin, async (req, res) => {
   const { targetType, targetUserId, title, content } = req.body as any;
-  const [row] = await db
-    .insert(notificationsTable)
-    .values({ targetType, targetUserId, title, content })
-    .returning();
+  const insertResult = await db.insert(notificationsTable).values({ targetType, targetUserId, title, content });
+  const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+  const [row] = insertId ? await db.select().from(notificationsTable).where(eq(notificationsTable.id, insertId)).limit(1) : [];
   await logActivity(
     { id: req.session.adminId, name: req.session.adminUsername },
     "send_notification",
@@ -1230,7 +1218,7 @@ router.get("/admin/reports/sales", requireAdmin, async (_req, res) => {
     GROUP BY DATE(created_at)
     ORDER BY DATE(created_at) DESC
   `);
-  res.json(((rows[0] as any[])) || []);
+  res.json(((rows[0] as unknown as any[])) || []);
 });
 
 router.get("/admin/reports/profit-log", requireAdmin, async (_req, res) => {
@@ -1243,7 +1231,7 @@ router.get("/admin/reports/profit-log", requireAdmin, async (_req, res) => {
     ORDER BY DATE(created_at) DESC
     LIMIT 90
   `);
-  res.json(((rows[0] as any[])) || []);
+  res.json(((rows[0] as unknown as any[])) || []);
 });
 
 // ========== BACKUP (mock) ==========
@@ -1276,27 +1264,25 @@ router.post("/admin/import-products", requireAdmin, async (req, res) => {
     res.status(400).json({ error: "لا توجد بيانات" });
     return;
   }
-  const inserted = await db
-    .insert(productsTable)
-    .values(
-      rows.map((r) => ({
-        name: r.name,
-        categoryId: r.categoryId,
-        priceUsd: String(r.priceUsd),
-        priceSyp: String(r.priceSyp),
-        productType: r.productType || "package",
-        image: r.image || "/cat-cards.png",
-        source: "import",
-      })),
-    )
-    .returning();
+  const insertResult = await db.insert(productsTable).values(
+    rows.map((r) => ({
+      name: r.name,
+      categoryId: r.categoryId,
+      priceUsd: String(r.priceUsd),
+      priceSyp: String(r.priceSyp),
+      productType: r.productType || "package",
+      image: r.image || "/cat-cards.png",
+      source: "import",
+    })),
+  );
+  const insertedCount = Number((insertResult as unknown as { affectedRows?: number }).affectedRows ?? rows.length);
   await logActivity(
     { id: req.session.adminId, name: req.session.adminUsername },
     "import_products",
     "products",
-    { count: inserted.length },
+    { count: insertedCount },
   );
-  res.json({ ok: true, count: inserted.length });
+  res.json({ ok: true, count: insertedCount });
 });
 
 // ========== 2FA (mock secret) ==========
@@ -1466,11 +1452,8 @@ const PUT_RESOURCES: Array<{ path: string; table: any; allowed: string[] }> = [
 for (const r of PUT_RESOURCES) {
   router.put(`/admin/${r.path}/:id`, requireAdmin, async (req, res) => {
     const data = filterFields(req.body, r.allowed);
-    const [row] = await db
-      .update(r.table)
-      .set(data)
-      .where(eq(r.table.id, Number(req.params.id)))
-      .returning();
+    await db.update(r.table).set(data).where(eq(r.table.id, Number(req.params.id)));
+    const [row] = await db.select().from(r.table).where(eq(r.table.id, Number(req.params.id))).limit(1);
     res.json(row);
   });
 }
@@ -1482,16 +1465,15 @@ router.get("/admin/vip", requireAdmin, async (_req, res) => {
 });
 router.post("/admin/vip", requireAdmin, async (req, res) => {
   const data = filterFields(req.body, ["name", "requiredAmount", "profitPct", "badge", "hidden"]);
-  const [row] = await db.insert(vipMembershipsTable).values(data).returning();
+  const insertResult = await db.insert(vipMembershipsTable).values(data);
+  const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+  const [row] = insertId ? await db.select().from(vipMembershipsTable).where(eq(vipMembershipsTable.id, insertId)).limit(1) : [];
   res.json(row);
 });
 router.put("/admin/vip/:id", requireAdmin, async (req, res) => {
   const data = filterFields(req.body, ["name", "requiredAmount", "profitPct", "badge", "hidden"]);
-  const [row] = await db
-    .update(vipMembershipsTable)
-    .set(data)
-    .where(eq(vipMembershipsTable.id, Number(req.params.id)))
-    .returning();
+  await db.update(vipMembershipsTable).set(data).where(eq(vipMembershipsTable.id, Number(req.params.id)));
+  const [row] = await db.select().from(vipMembershipsTable).where(eq(vipMembershipsTable.id, Number(req.params.id))).limit(1);
   res.json(row);
 });
 router.delete("/admin/vip/:id", requireAdmin, async (req, res) => {
@@ -1592,18 +1574,18 @@ router.get("/admin/reports", requireAdmin, async (req, res) => {
     WHERE (${from} IS NULL OR DATE(created_at) >= ${from})
       AND (${to} IS NULL OR DATE(created_at) <= ${to})
   `);
-  const totRows = (totResult[0] as any[]);
-  const [tot] = totRows;
+  const totRows = Array.isArray(totResult?.[0]) ? (totResult[0] as unknown[]) : [];
+  const [tot] = totRows as Array<Record<string, any>>;
   const depResult = await db.execute(sql`
     SELECT coalesce(sum(case when status='approved' then amount_usd else 0 end), 0) as "totalDepositsUsd"
     FROM deposits
     WHERE (${from} IS NULL OR DATE(created_at) >= ${from})
       AND (${to} IS NULL OR DATE(created_at) <= ${to})
   `);
-  const depRows = (depResult[0] as any[]);
-  const [dep] = depRows;
+  const depRows = Array.isArray(depResult?.[0]) ? (depResult[0] as unknown[]) : [];
+  const [dep] = depRows as Array<Record<string, any>>;
   res.json({
-    daily: ((dailyRows[0] as any[])) || [],
+    daily: Array.isArray(dailyRows?.[0]) ? (dailyRows[0] as unknown[]) : [],
     totalSalesUsd: tot?.totalSalesUsd || 0,
     totalProfitUsd: tot?.totalProfitUsd || 0,
     orderCount: tot?.orderCount || 0,
@@ -1664,8 +1646,8 @@ router.post("/admin/import", requireAdmin, async (req, res) => {
     if (Array.isArray(rows) && rows.length > 0) {
       try {
         const stripped = rows.map(({ id, ...rest }: any) => rest);
-        const result = await db.insert(table).values(stripped).onConflictDoNothing().returning();
-        imported += (result as any[]).length;
+        await db.insert(table).values(stripped).onDuplicateKeyUpdate({ set: { id: sql`${table.id}` as any } });
+        imported += stripped.length;
       } catch {
         // continue silently for invalid rows
       }
@@ -1696,7 +1678,7 @@ router.put("/admin/settings/items", requireAdmin, async (req, res) => {
     await db
       .insert(settingsTable)
       .values({ key: it.key, value: it.value })
-      .onConflictDoUpdate({ target: settingsTable.key, set: { value: it.value } });
+      .onDuplicateKeyUpdate({ set: { value: it.value } });
   }
   res.json({ ok: true });
 }); 
@@ -1736,7 +1718,8 @@ router.post("/admin/providers/:id/sync", requireAdmin, async (req, res) => {
         WHERE provider_product_id = ${Number(p.id)} 
         LIMIT 1
       `);
-      const existingProdId = ((existingProdResult[0] as any[]))[0]?.id || null;
+      const existingRows = Array.isArray(existingProdResult?.[0]) ? (existingProdResult[0] as Array<Record<string, any>>) : [];
+      const existingProdId = existingRows[0]?.id || null;
 
       // تحديث المنتج الموجود فقط – لا نقوم بإدراج جديد
       if (existingProdId) {

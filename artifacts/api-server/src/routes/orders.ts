@@ -511,25 +511,24 @@ router.post("/orders", async (req, res) => {
         .set({
           balanceUsd: sql`${usersTable.balanceUsd} - ${String(totalUsd)}`,
         })
-        .where(and(eq(usersTable.id, user.id), sql`${usersTable.balanceUsd} >= ${String(totalUsd)}`))
-        .returning();
+        .where(and(eq(usersTable.id, user.id), sql`${usersTable.balanceUsd} >= ${String(totalUsd)}`));
 
       if (!updatedUser) throw new ValidationError("رصيدك غير كافٍ لإتمام الطلب");
 
-      return tx
-        .insert(ordersTable)
-        .values({
-          orderNumber,
-          userId: user.id,
-          productId: product.id,
-          quantity: String(body.quantity),
-          userIdentifier: body.userIdentifier ?? null,
-          totalUsd,
-          totalSyp: String(totalSyp),
-          status: finalOrderStatus,
-          meta,
-        })
-        .returning();
+      const insertResult = await tx.insert(ordersTable).values({
+        orderNumber,
+        userId: user.id,
+        productId: product.id,
+        quantity: String(body.quantity),
+        userIdentifier: body.userIdentifier ?? null,
+        totalUsd,
+        totalSyp: String(totalSyp),
+        status: finalOrderStatus,
+        meta,
+      });
+      const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+      const [row] = insertId ? await tx.select().from(ordersTable).where(eq(ordersTable.id, insertId)).limit(1) : [];
+      return [row];
     });
 
     const o = inserted[0]!;

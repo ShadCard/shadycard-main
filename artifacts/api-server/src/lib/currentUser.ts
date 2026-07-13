@@ -197,27 +197,23 @@ async function upsertCurrentUserByIdentity(identity: { telegramId: string; usern
   if (existing.length > 0) {
     const current = existing[0]!;
     if (!current.username || current.username === DEFAULT_USERNAME) {
-      const [updated] = await db
-        .update(usersTable)
-        .set({ username: identity.username })
-        .where(eq(usersTable.id, current.id))
-        .returning();
+      await db.update(usersTable).set({ username: identity.username }).where(eq(usersTable.id, current.id));
+      const [updated] = await db.select().from(usersTable).where(eq(usersTable.id, current.id)).limit(1);
       return updated ?? current;
     }
     return current;
   }
 
-  const inserted = await db
-    .insert(usersTable)
-    .values({
-      telegramId: identity.telegramId,
-      username: identity.username,
-      balanceUsd: "0",
-      balanceSyp: "0",
-      role: "user",
-    })
-    .returning();
-  return inserted[0]!;
+  const insertResult = await db.insert(usersTable).values({
+    telegramId: identity.telegramId,
+    username: identity.username,
+    balanceUsd: "0",
+    balanceSyp: "0",
+    role: "user",
+  });
+  const insertId = Number((insertResult as unknown as { insertId?: number }).insertId ?? 0);
+  const [inserted] = await db.select().from(usersTable).where(eq(usersTable.id, insertId)).limit(1);
+  return inserted!;
 }
 
 /**
