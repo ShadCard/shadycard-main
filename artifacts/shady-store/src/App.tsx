@@ -1,0 +1,304 @@
+import { useEffect, useLayoutEffect, useState } from "react";
+import { Switch, Route, Router as WouterRouter } from "wouter";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import NotFound from "@/pages/not-found";
+import Home from "@/pages/home";
+import Categories from "@/pages/categories";
+import ProductDetail from "@/pages/product-detail";
+import Orders from "@/pages/orders";
+import OrderDetail from "@/pages/order-detail";
+import Deposit from "@/pages/deposit";
+import DepositMethod from "@/pages/deposit-method";
+import ShamCashInvoiceVerify from "@/pages/shamcash-invoice-verify";
+import DepositsList from "@/pages/deposits";
+import Profile from "@/pages/profile";
+import Support from "@/pages/support";
+import AuthPage from "@/pages/auth";
+import MaintenancePage from "@/pages/maintenance";
+import AppLayout from "@/components/layout/AppLayout";
+import { isTelegramMode, isLoggedIn, fetchMe, getStoredToken } from "@/lib/web-auth";
+
+const queryClient = new QueryClient();
+
+type StoreTheme = {
+  primary: string;
+  accent: string;
+  background: string;
+  font: string;
+  radius: string;
+};
+
+const SHADY_BRAND_THEME: StoreTheme = {
+  primary: "#58E8FF",
+  accent: "#D94CFF",
+  background: "#07091B",
+  font: "Cairo",
+  radius: "16",
+};
+
+function hexToHslString(hex: string, fallback: string): string {
+  const normalized = String(hex || "").trim().replace(/^#/, "");
+  const fullHex =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : normalized;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(fullHex)) return fallback;
+
+  const r = parseInt(fullHex.slice(0, 2), 16) / 255;
+  const g = parseInt(fullHex.slice(2, 4), 16) / 255;
+  const b = parseInt(fullHex.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+
+  let hue = 0;
+  let saturation = 0;
+
+  if (delta !== 0) {
+    saturation = delta / (1 - Math.abs(2 * lightness - 1));
+
+    switch (max) {
+      case r:
+        hue = ((g - b) / delta) % 6;
+        break;
+      case g:
+        hue = (b - r) / delta + 2;
+        break;
+      default:
+        hue = (r - g) / delta + 4;
+        break;
+    }
+  }
+
+  const h = Math.round(hue * 60 < 0 ? hue * 60 + 360 : hue * 60);
+  const s = Math.round(saturation * 100);
+  const l = Math.round(lightness * 100);
+  return `${h} ${s}% ${l}%`;
+}
+
+function clampLightness(hsl: string, delta: number): string {
+  const match = String(hsl).match(/^(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/);
+  if (!match) return hsl;
+
+  const h = Number(match[1]);
+  const s = Number(match[2]);
+  const l = Math.max(0, Math.min(100, Number(match[3]) + delta));
+  return `${Math.round(h)} ${Math.round(s)}% ${Math.round(l)}%`;
+}
+
+function clampMaxLightness(hsl: string, maxL: number): string {
+  const match = String(hsl).match(/^(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/);
+  if (!match) return hsl;
+
+  const h = Number(match[1]);
+  const s = Number(match[2]);
+  const l = Math.min(maxL, Math.max(0, Number(match[3])));
+  return `${Math.round(h)} ${Math.round(s)}% ${Math.round(l)}%`;
+}
+
+function applyTheme(theme: StoreTheme) {
+  const root = document.documentElement;
+  const primary = hexToHslString(theme.primary, "188 100% 67%");
+  const accent = hexToHslString(theme.accent, "291 100% 65%");
+  const backgroundRaw = hexToHslString(theme.background, "236 57% 7%");
+  const background = clampMaxLightness(backgroundRaw, 18);
+  const radiusValue = Number(theme.radius);
+  const radius = Number.isFinite(radiusValue) && radiusValue > 0 ? `${radiusValue}px` : "16px";
+  const font = String(theme.font || "Cairo").trim() || "Cairo";
+
+  root.style.setProperty("--primary", primary);
+  root.style.setProperty("--sidebar-primary", primary);
+  root.style.setProperty("--ring", primary);
+  root.style.setProperty("--accent", accent);
+  root.style.setProperty("--background", background);
+  root.style.setProperty("--sidebar", background);
+  root.style.setProperty("--card", clampLightness(background, 2));
+  root.style.setProperty("--popover", clampLightness(background, 2));
+  root.style.setProperty("--border", clampLightness(background, 10));
+  root.style.setProperty("--input", clampLightness(background, 10));
+  root.style.setProperty("--muted", clampLightness(background, 8));
+  root.style.setProperty("--secondary", clampLightness(background, 6));
+  root.style.setProperty("--app-bg-glow", clampLightness(primary, -8));
+  root.style.setProperty("--app-bg-deep", clampLightness(background, 8));
+  root.style.setProperty("--radius", radius);
+  root.style.setProperty("--app-font-sans", `'${font}', sans-serif`);
+}
+
+function normalizeRemoteTheme(theme: Partial<StoreTheme> | null | undefined): StoreTheme {
+  const legacyColors = new Set(["#0052cc", "#f97316", "#0a1628"]);
+  const remotePrimary = String(theme?.primary || "").trim();
+  const remoteAccent = String(theme?.accent || "").trim();
+  const remoteBackground = String(theme?.background || "").trim();
+
+  const hasLegacyTheme =
+    legacyColors.has(remotePrimary.toLowerCase()) ||
+    legacyColors.has(remoteAccent.toLowerCase()) ||
+    legacyColors.has(remoteBackground.toLowerCase());
+
+  if (hasLegacyTheme) return SHADY_BRAND_THEME;
+
+  return {
+    ...SHADY_BRAND_THEME,
+    ...theme,
+    primary: remotePrimary || SHADY_BRAND_THEME.primary,
+    accent: remoteAccent || SHADY_BRAND_THEME.accent,
+    background: remoteBackground || SHADY_BRAND_THEME.background,
+  };
+}
+
+type AppState = "loading" | "auth" | "ready" | "maintenance";
+
+function Router() {
+  return (
+    <AppLayout>
+      <Switch>
+        <Route path="/" component={Home} />
+        <Route path="/categories/:id" component={Categories} />
+        <Route path="/products/:id" component={ProductDetail} />
+        <Route path="/orders" component={Orders} />
+        <Route path="/orders/:id" component={OrderDetail} />
+        <Route path="/deposit" component={Deposit} />
+        <Route path="/deposit/:method/invoice" component={ShamCashInvoiceVerify} />
+        <Route path="/deposit/:method" component={DepositMethod} />
+        <Route path="/deposits" component={DepositsList} />
+        <Route path="/profile" component={Profile} />
+        <Route path="/support" component={Support} />
+        <Route component={NotFound} />
+      </Switch>
+    </AppLayout>
+  );
+}
+
+function App() {
+  const [state, setState] = useState<AppState>("loading");
+
+  useLayoutEffect(() => {
+    applyTheme(SHADY_BRAND_THEME);
+
+    const baseUrl = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+    const themeUrl = `${baseUrl}/api/theme`;
+
+    fetch(themeUrl)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`theme_http_${res.status}`);
+        return res.json() as Promise<StoreTheme>;
+      })
+      .then((theme) => applyTheme(normalizeRemoteTheme(theme)))
+      .catch((error) => {
+        console.error("Theme load failed:", error);
+      });
+  }, []);
+
+  // Bootstrap: detect Telegram mode vs Web mode, check maintenance, check auth
+  useEffect(() => {
+    let cancelled = false;
+    async function bootstrap() {
+      const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+      if (!base) {
+        // No API URL configured — just show the store
+        if (!cancelled) setState("ready");
+        return;
+      }
+
+      // 1) Check maintenance status (only for non-Telegram users in web mode)
+      if (!isTelegramMode()) {
+        try {
+          const res = await fetch(`${base}/api/maintenance-status`, {
+            method: "GET",
+            headers: { "Cache-Control": "no-cache" },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.enabled) {
+              if (!cancelled) setState("maintenance");
+              return;
+            }
+          }
+        } catch {
+          // ignore network errors — proceed
+        }
+      }
+
+      // 2) If Telegram mode, user is auto-logged-in via Telegram identity
+      if (isTelegramMode()) {
+        if (!cancelled) setState("ready");
+        return;
+      }
+
+      // 3) Web mode — check if user has a valid token
+      const token = getStoredToken();
+      if (!token) {
+        if (!cancelled) setState("auth");
+        return;
+      }
+
+      // Validate token by hitting /api/auth/me
+      const me = await fetchMe();
+      if (!me) {
+        if (!cancelled) setState("auth");
+        return;
+      }
+      if (!cancelled) setState("ready");
+    }
+    bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (state === "loading") {
+    return (
+      <div className="shady-shell min-h-[100dvh] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 mx-auto mb-3 rounded-2xl animate-pulse" style={{
+            background: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))",
+          }} />
+          <div className="text-sm text-muted-foreground">جاري التحميل...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state === "maintenance") {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <MaintenancePage />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  if (state === "auth") {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <AuthPage />
+          </WouterRouter>
+          <Toaster theme="dark" position="top-center" dir="rtl" />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <Router />
+        </WouterRouter>
+        <Toaster theme="dark" position="top-center" dir="rtl" />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default App;

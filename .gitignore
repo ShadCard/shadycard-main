@@ -1,0 +1,85 @@
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+# ===== Secrets / Environment files =====
+# NEVER commit real .env files — they contain DATABASE_URL, API tokens, secrets
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+# Keep .env.example files tracked (they are templates)
+!.env.example
+
+# ===== Compiled output =====
+dist
+tmp
+out-tsc
+*.tsbuildinfo
+.expo
+.expo-shared
+
+# ===== Dependencies =====
+node_modules
+
+# ===== IDEs and editors =====
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# ===== Misc =====
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+*.log
+
+# ===== System Files =====
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===== Replit =====
+.cache/
+.local/
+.replit*
+.replit-artifact
+.agents/
+.upm
+.config/
+.state/
+
+# ===== Build artifacts =====
+attached_assets/
+.turbo/
+.vercel
+.output
+.nuxt
+.next
+
+# ===== Lock files (keep pnpm-lock.yaml only) =====
+package-lock.json
+yarn.lock
+
+# ===== Drizzle =====
+drizzle/meta/
+
+# ===== Temp / OS =====
+*.swp
+*.swo
+*~
